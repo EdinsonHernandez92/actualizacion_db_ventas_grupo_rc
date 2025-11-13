@@ -65,7 +65,7 @@ def extraer_y_transformar_inventario():
             if df_empresa.empty:continue
 
             #Añadimos la columna de la empresa
-            df_empresa['empresa_erp'] = nombre_empresa
+            df_empresa['empresa_inv'] = nombre_empresa
             
             #Aplicamos los filtros de negocio
             bodegas_permitidas = empresa_config.get("bodegas_permitidas",[])
@@ -176,6 +176,3 @@ def ejecutar_fase_1_inventario():
                 print("\nConexión a la base de datos cerrada.")
     
     print("\n== FIN FASE 1: Actualización de Inventario ==\n")
-
-# ¡Asegúrate de llamar a esta función 'ejecutar_fase_1_inventario()'
-# desde tu 'main_con_gooey.py' cuando el usuario la seleccione!

@@ -1,12 +1,14 @@
 import sys
 import os
-import importlib.util
+import importlib.util 
 from datetime import datetime
-import argparse # ¡Importamos argparse!
-from gooey import Gooey, GooeyParser # ¡Importamos Gooey!
+import argparse
+from gooey import Gooey, GooeyParser
+
+# Añadimos la ruta raíz del proyecto al path de python
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
 # --- Importación de Utilidades ---
-# (Asumimos que config.py y db_utils.py están correctos)
 try:
     from utils.db_utils import get_db_connection
 except ImportError as e:
@@ -15,15 +17,21 @@ except ImportError as e:
 
 # --- Importación de Módulos de Fases ---
 try:
-    from fase_1_extraccion_ventas.cargar_ventas_api import ejecutar_fase_1
+    # FASE 1 - VENTAS (Renombrada)
+    from fase_1_extraccion_ventas.cargar_ventas_api import ejecutar_fase_1 as ejecutar_fase_1_ventas
+    # FASE 1 - INVENTARIO
+    from fase_1_extraccion_inventario.cargar_inventario_api import ejecutar_fase_1_inventario
+    # FASE 1 - TERCEROS (¡NUEVO!)
+    from fase_1_extraccion_terceros.cargar_terceros_api import ejecutar_fase_1_terceros
+    # FASE 3
     from fase_3_exporte_xlsx.export_to_xlsx import ejecutar_fase_3
 except ImportError as e:
-    print(f"Error: No se pudo importar un módulo de fase. {e}")
+    print(f"Error: No se pudo importar un módulo de fase. ¿Revisaste las rutas?")
+    print(f"Detalle: {e}")
     sys.exit(1)
 
+
 # --- LÓGICA DE FASE 2 (Adaptada para Gooey) ---
-# Copiamos la lógica que estaba en el 'main.py' anterior,
-# pero ahora acepta 'script_path' como argumento.
 def correr_fase_2_gooey(script_path):
     """
     Recibe la ruta a un script de ajuste, lo importa dinámicamente
@@ -43,15 +51,13 @@ def correr_fase_2_gooey(script_path):
             print("ERROR: No se pudo obtener conexión a la BD para la Fase 2.")
             return
 
-        # --- Magia de Importación Dinámica ---
         module_name = os.path.basename(script_path).replace('.py', '')
         spec = importlib.util.spec_from_file_location(module_name, script_path)
         script_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(script_module)
-        # --- Fin de la Magia ---
 
         if hasattr(script_module, 'ejecutar_ajustes'):
-            script_module.ejecutar_ajustes(conn) # Le pasamos la conexión
+            script_module.ejecutar_ajustes(conn) 
         else:
             print(f"ERROR: El script {script_path} no tiene una función 'ejecutar_ajustes(conn)'.")
             conn.rollback()
@@ -68,44 +74,39 @@ def correr_fase_2_gooey(script_path):
     print("\n== FIN FASE 2: Ajustes de Base de Datos ==\n")
 
 
-# --- ¡AQUÍ EMPIEZA LA MAGIA DE GOOEY! ---
+# --- DEFINICIÓN DE LA GUI CON GOOEY ---
 
-# @Gooey es el decorador que transforma argparse en una GUI.
-# El 'program_name' es el título de la ventana.
 @Gooey(
-    program_name="Sistema de Actualización de Ventas",
-    default_size=(720, 700), # Tamaño de la ventana
-    navigation='TABBED',    # ¡Usa pestañas para cada Fase!
-    progress_regex=r"^Info: (.*)$" # Expresión para la barra de progreso
+    program_name="Sistema de Actualización de Datos ERP",
+    default_size=(800, 700),
+    navigation='TABBED',
+    progress_regex=r"^Info: (.*)$"
 )
 def main():
     """
     Función principal que define la interfaz de Gooey.
     """
     
-    # 1. Creamos el "parser" principal
     parser = GooeyParser(description="Seleccione la tarea a ejecutar.")
-    
-    # 2. Creamos los "subparsers". Gooey los convertirá en Pestañas (Tabs)
     subparsers = parser.add_subparsers(dest='command', help="Seleccione una fase")
 
-    # --- PESTAÑA 1: FLUJO COMPLETO ---
+    # --- PESTAÑA 1: FLUJO COMPLETO (VENTAS) ---
     full_parser = subparsers.add_parser(
-        'completo', 
-        help="Ejecuta las 3 fases en orden: API -> Ajustes -> Excel"
+        'ventas_completo', 
+        help="Ejecuta las 3 fases de Ventas en orden: API -> Ajustes -> Excel"
     )
     full_group = full_parser.add_argument_group("Opciones del Flujo Completo", gooey_options={'columns': 2})
     
-    # Argumentos para la Fase 1 (Extracción)
+    # Argumentos para la Fase 1 (Extracción de Ventas)
     full_group.add_argument(
         '--fecha_inicio_f1', 
-        help="Fecha inicial para extraer de la API (YYYY-MM-DD)",
-        widget="DateChooser", # ¡Esto crea un calendario!
-        gooey_options={'format': '%Y-%m-%d'} #Forzamos el formato de salida de la fecha
+        help="Fecha inicial para extraer ventas (YYYY-MM-DD)",
+        widget="DateChooser",
+        gooey_options={'format': '%Y-%m-%d'}
     )
     full_group.add_argument(
         '--fecha_fin_f1',
-        help="Fecha final para extraer de la API (YYYY-MM-DD)",
+        help="Fecha final para extraer ventas (YYYY-MM-DD)",
         widget="DateChooser",
         gooey_options={'format': '%Y-%m-%d'}
     )
@@ -114,7 +115,7 @@ def main():
     full_group.add_argument(
         '--script_ajuste_f2',
         help="Script de ajuste (.py) a ejecutar (Opcional)",
-        widget="FileChooser" # ¡Esto crea un botón de "Buscar archivo"!
+        widget="FileChooser"
     )
     
     # Argumentos para la Fase 3 (Exporte)
@@ -122,7 +123,7 @@ def main():
         '--mes_exporte_f3',
         help="Mes a exportar (1-12)",
         type=int,
-        choices=list(range(1, 13)), # ¡Esto crea un dropdown!
+        choices=list(range(1, 13)),
         widget="Dropdown"
     )
     full_group.add_argument(
@@ -132,48 +133,74 @@ def main():
         default=datetime.now().year
     )
 
-    # --- PESTAÑA 2: SOLO FASE 1 (Extracción API) ---
-    fase1_parser = subparsers.add_parser(
-        'fase1', 
-        help="Ejecutar solo la extracción y carga desde la API"
+    # --- PESTAÑA 2: SOLO FASE 1 - VENTAS ---
+    fase1_ventas_parser = subparsers.add_parser(
+        'fase1_ventas', 
+        help="Extracción y carga de Ventas (por rango)"
     )
-    fase1_parser.add_argument(
+    fase1_ventas_parser.add_argument(
         'fecha_inicio',
-        help="Fecha inicial para extraer de la API (YYYY-MM-DD)",
+        help="Fecha inicial para extraer ventas (YYYY-MM-DD)",
         widget="DateChooser",
         gooey_options={'format': '%Y-%m-%d'}
     )
-    fase1_parser.add_argument(
+    fase1_ventas_parser.add_argument(
         'fecha_fin',
-        help="Fecha final para extraer de la API (YYYY-MM-DD)",
+        help="Fecha final para extraer ventas (YYYY-MM-DD)",
         widget="DateChooser",
         gooey_options={'format': '%Y-%m-%d'}
+    )
+
+    # --- PESTAÑA 3: SOLO FASE 1 - INVENTARIO ---
+    fase1_inv_parser = subparsers.add_parser(
+        'fase1_inventario',
+        help="Actualización completa de Inventario (Upsert)"
+    )
+    fase1_inv_parser.add_argument(
+        '--run_inventory',
+        help="Presione Start para iniciar la actualización de inventario",
+        action='store_true',
+        default=True,
+        widget="Block" # Hace que el argumento se vea como un simple bloque
     )
     
-    # --- PESTAÑA 3: SOLO FASE 2 (Ajustes DB) ---
+    # --- PESTAÑA 4: SOLO FASE 1 - TERCEROS (¡NUEVA PESTAÑA!) ---
+    fase1_terceros_parser = subparsers.add_parser(
+        'fase1_terceros',
+        help="Actualización completa de Terceros (Upsert)"
+    )
+    fase1_terceros_parser.add_argument(
+        '--run_terceros',
+        help="Presione Start para iniciar la actualización de terceros",
+        action='store_true',
+        default=True,
+        widget="Block"
+    )
+
+    # --- PESTAÑA 5: SOLO FASE 2 (Ajustes DB) ---
     fase2_parser = subparsers.add_parser(
         'fase2', 
-        help="Ejecutar solo un script de ajuste en la BD"
+        help="Ejecutar script de ajustes mensuales en la BD"
     )
     fase2_parser.add_argument(
         'script_path',
         help="Seleccione el script de ajuste (.py) a ejecutar",
-        widget="FileChooser", # Botón "Buscar archivo..."
+        widget="FileChooser",
         gooey_options={
             'wildcard': "Scripts de Python (*.py)|*.py"
         }
     )
     
-    # --- PESTAÑA 4: SOLO FASE 3 (Exporte Excel) ---
+    # --- PESTAÑA 6: SOLO FASE 3 (Exporte Excel) ---
     fase3_parser = subparsers.add_parser(
         'fase3', 
-        help="Ejecutar solo la exportación a Excel"
+        help="Exportación de Ventas a Excel"
     )
     fase3_parser.add_argument(
         'mes',
         help="Mes a exportar (1-12)",
         type=int,
-        choices=list(range(1, 13)), # Dropdown
+        choices=list(range(1, 13)),
         widget="Dropdown"
     )
     fase3_parser.add_argument(
@@ -183,35 +210,44 @@ def main():
         default=datetime.now().year
     )
     
-    # --- FIN DE LA DEFINICIÓN DE LA GUI ---
-
-    # 3. Gooey parsea los argumentos que el usuario puso en la GUI
+    # 3. Gooey parsea los argumentos
     args = parser.parse_args()
 
-    # 4. Lógica para decidir QUÉ ejecutar (¡ya no hay bucle while!)
+    # 4. Lógica para decidir QUÉ ejecutar
     
     print(f"Comando seleccionado: {args.command}")
 
-    if args.command == 'completo':
-        print("#"*40)
-        print("      INICIANDO FLUJO COMPLETO")
+    if args.command == 'ventas_completo':
+        print("\n" + "#"*40)
+        print("      INICIANDO FLUJO COMPLETO DE VENTAS")
         print("#"*40)
         
-        # 1. Correr Fase 1 (¡Pasando los argumentos directamente!)
-        # (Asegúrate de que tus DateChooser tengan el 'gooey_options' que pusimos primero)
-        ejecutar_fase_1(args.fecha_inicio_f1, args.fecha_fin_f1)
+        # Corrección de fecha y ejecución de FASE 1
+        fecha_inicio_obj = datetime.strptime(args.fecha_inicio_f1, '%Y-%m-%d')
+        fecha_fin_obj = datetime.strptime(args.fecha_fin_f1, '%Y-%m-%d')
+        fecha_ini_corregida = fecha_inicio_obj.strftime('%Y-%m-%d')
+        fecha_fin_corregida = fecha_fin_obj.strftime('%Y-%m-%d')
         
-        # 2. Correr Fase 2
+        ejecutar_fase_1_ventas(fecha_ini_corregida, fecha_fin_corregida)
         correr_fase_2_gooey(args.script_ajuste_f2)
-        
-        # 3. Correr Fase 3
         ejecutar_fase_3(args.mes_exporte_f3, args.anio_exporte_f3)
         
         print("\n¡FLUJO COMPLETO TERMINADO!")
         
-    elif args.command == 'fase1':
-        # ¡Pasamos los argumentos directamente!
-        ejecutar_fase_1(args.fecha_inicio, args.fecha_fin)
+    elif args.command == 'fase1_ventas':
+        # Corrección de fecha y ejecución
+        fecha_inicio_obj = datetime.strptime(args.fecha_inicio, '%Y-%m-%d')
+        fecha_fin_obj = datetime.strptime(args.fecha_fin, '%Y-%m-%d')
+        fecha_ini_corregida = fecha_inicio_obj.strftime('%Y-%m-%d')
+        fecha_fin_corregida = fecha_fin_obj.strftime('%Y-%m-%d')
+        
+        ejecutar_fase_1_ventas(fecha_ini_corregida, fecha_fin_corregida)
+        
+    elif args.command == 'fase1_inventario':
+        ejecutar_fase_1_inventario()
+        
+    elif args.command == 'fase1_terceros': # <--- ¡NUEVA LÓGICA DE EJECUCIÓN!
+        ejecutar_fase_1_terceros()
         
     elif args.command == 'fase2':
         correr_fase_2_gooey(args.script_path)
@@ -220,11 +256,10 @@ def main():
         ejecutar_fase_3(args.mes, args.anio)
     
     else:
-        print("No se seleccionó ningún comando. (Deberías ver esto en la terminal, no en Gooey)")
+        print("No se seleccionó ningún comando.")
 
 # --- FIN DEL SCRIPT ---
 
 if __name__ == "__main__":
-    # ¡Asegúrate de que la ruta raíz esté en el path!
-    sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+    # Asegúrate de que la ruta raíz esté en el path (ya lo hicimos arriba)
     main()

@@ -55,7 +55,7 @@ def extraer_clientes_api():
             terceros_procesados = [ {nuestra_col: item.get(api_col) for api_col, nuestra_col in mapeo_columnas_api.items()} for item in lista_terceros_api if isinstance(item, dict) ]
             if terceros_procesados:
                 df_empresa = pd.DataFrame(terceros_procesados)
-                df_empresa['empresa_erp'] = nombre_empresa
+                df_empresa['empresa_ter'] = nombre_empresa
                 lista_dfs_empresas.append(df_empresa)
                 print(f"¡ÉXITO! Se procesaron {len(df_empresa)} clientes de {nombre_empresa}.")
         except Exception as e:
@@ -66,3 +66,101 @@ def extraer_clientes_api():
         print(f"\nINFO: Extracción completada. Total de clientes consolidados: {len(df_consolidado)}")
         return df_consolidado
     return None
+
+def cargar_terceros_db(df_terceros, conn):
+    """
+    Carga el DataFrame de terceros en la tabla 'terceros' usando la estrategia UPSERT 
+    (INSERT ON CONFLICT DO UPDATE).
+    
+    La clave única (ON CONFLICT) es: (nit, empresa_ter)
+    """
+    table_name = "terceros"
+    print(f"\nINFO: Iniciando carga UPSERT en '{table_name}'...")
+    
+    if df_terceros is None or df_terceros.empty:
+        print("Advertencia: No hay datos de terceros para cargar.")
+        return
+
+    try:
+        # --- Paso 1: Preparación de datos ---
+        from psycopg2 import extras
+
+        # Convertimos nulos (NaN) a None (NULL de Python/SQL)
+        df_para_insertar = df_terceros.astype(object).where(pd.notnull(df_terceros), None)
+        datos_para_insertar = [tuple(row) for row in df_para_insertar.values.tolist()]
+        
+        columnas_db = list(df_terceros.columns)
+        
+        # Clave de Conflicto: NIT y EMPRESA
+        clave_conflicto = ("nit", "empresa_ter")
+        
+        # Columnas a actualizar: todas menos la clave de conflicto
+        columnas_a_actualizar = [
+            col for col in columnas_db if col not in clave_conflicto
+        ]
+        
+        # 2. Construcción de la cláusula ON CONFLICT DO UPDATE
+        update_clausule = ', '.join([
+            f'"{col}" = EXCLUDED."{col}"' for col in columnas_a_actualizar
+        ])
+        
+        # 3. Consulta SQL final
+        # Usamos f-string para el nombre de la tabla y join para las columnas.
+        query_upsert = f"""
+            INSERT INTO public."{table_name}" ({', '.join(f'"{c}"' for c in columnas_db)})
+            VALUES %s
+            ON CONFLICT ("nit", "empresa_ter") DO UPDATE
+            SET {update_clausule};
+        """
+        
+        # --- Paso 2: Ejecución ---
+        with conn.cursor() as cursor:
+            print(f"Info: Ejecutando UPSERT para {len(datos_para_insertar)} registros...")
+            extras.execute_values(
+                cursor, 
+                query_upsert, 
+                datos_para_insertar, 
+                page_size=5000
+            )
+            conn.commit()
+            print(f"¡ÉXITO! {len(datos_para_insertar)} registros de terceros actualizados/insertados en '{table_name}'.")
+
+    except Exception as e:
+        print(f"ERROR CRÍTICO durante la carga UPSERT en '{table_name}': {e}")
+        conn.rollback()
+        raise
+
+
+def ejecutar_fase_1_terceros():
+    """
+    Orquesta la extracción, transformación y carga (UPSERT) de los datos de Terceros.
+    """
+    # Importamos get_db_connection aquí (si no está importado globalmente)
+    from utils.db_utils import get_db_connection
+    
+    print("\n=== INICIO FASE 1: ACTUALIZACIÓN DE TERCEROS ===")
+    
+    # 1. Extracción y Transformación
+    try:
+        # Debes reemplazar 'extraer_y_transformar_terceros' con el nombre de tu función de extracción
+        df_terceros = extraer_clientes_api() 
+    except Exception as e:
+        print(f"ERROR: Falló la extracción y transformación de Terceros: {e}")
+        return # Salir si la extracción falla
+
+    if df_terceros is not None and not df_terceros.empty:
+        # 2. Conexión y Carga (Upsert)
+        conn = get_db_connection()
+        if conn:
+            try:
+                # Debes reemplazar 'cargar_terceros_db' con el nombre de tu función de carga
+                cargar_terceros_db(df_terceros, conn) 
+            except Exception as e:
+                print(f"ERROR: El proceso de carga UPSERT de Terceros falló: {e}")
+            finally:
+                conn.close()
+                print("\nConexión a la base de datos cerrada.")
+    else:
+        print("Advertencia: No se encontraron datos de Terceros para actualizar.")
+    
+    print("\n== FIN FASE 1: Actualización de Terceros ==\n")
