@@ -44,7 +44,7 @@ api_config_tns = [
         "password_tns": os.getenv("tns_api_password_py"),
         "cod_sucursal_tns": "00",
         "bodegas_permitidas": ["03"],
-        "lista_precio_permitida": None # No aplica para la fábrica, lo ponemos como None
+        "lista_precio_permitida": "1" # Atento a los nulls
     }    
 ]
 
